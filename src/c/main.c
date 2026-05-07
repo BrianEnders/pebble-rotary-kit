@@ -1,5 +1,4 @@
 #include <pebble.h>
-#include <math.h>
 
 #define CENTER_X 130
 #define CENTER_Y 130
