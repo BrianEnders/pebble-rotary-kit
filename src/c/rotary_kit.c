@@ -21,6 +21,33 @@ static RotaryConfig s_cfg;
 static bool         s_active = false;
 
 // ---------------------------------------------------------------------------
+// Per-window config table and tracking
+//
+// To support multiple windows with different configs, we maintain a small
+// table of (window, config) pairs. On each touch event, we look up the top
+// window's config and route the event accordingly.
+// ---------------------------------------------------------------------------
+
+#define MAX_WINDOW_CONFIGS 8
+typedef struct {
+    Window      *window;
+    RotaryConfig config;
+} WindowConfigEntry;
+
+static WindowConfigEntry s_window_configs[MAX_WINDOW_CONFIGS];
+static int               s_window_config_count = 0;
+static bool              s_window_has_config  = false;
+
+static RotaryConfig *prv_find_window_config(Window *window) {
+    for (int i = 0; i < s_window_config_count; i++) {
+        if (s_window_configs[i].window == window) {
+            return &s_window_configs[i].config;
+        }
+    }
+    return NULL;
+}
+
+// ---------------------------------------------------------------------------
 // Swipe region
 //
 // The screen is divided into four 90° wedges.  Angles are measured clockwise
@@ -146,6 +173,7 @@ static TouchRegion prv_region_at(int16_t x, int16_t y) {
 // ---------------------------------------------------------------------------
 
 static void prv_fire_click(int direction) {
+    if (!s_window_has_config) return;
     s_click_count++;
     if (s_cfg.vibrate_on_click) vibes_short_pulse();
     if (s_cfg.on_click) {
@@ -169,6 +197,18 @@ static void prv_touch_handler(const TouchEvent *event, void *context) {
     switch (event->type) {
 
         case TouchEvent_Touchdown:
+            // Capture the top window's config for this gesture
+            {
+                Window *top_window = window_stack_get_top_window();
+                RotaryConfig *window_config = top_window ? prv_find_window_config(top_window) : NULL;
+                if (window_config) {
+                    s_cfg = *window_config;
+                    s_window_has_config = true;
+                } else {
+                    s_window_has_config = false;
+                }
+            }
+
             // Reset all per-gesture state
             s_click_count        = 0;
             s_accumulated_hd     = 0;
@@ -240,7 +280,7 @@ static void prv_touch_handler(const TouchEvent *event, void *context) {
             if (s_center_tap_pending) {
                 s_center_tap_pending = false;
                 APP_LOG(APP_LOG_LEVEL_INFO, "RotaryKit: centre tap");
-                if (s_cfg.on_center_tap) {
+                if (s_window_has_config && s_cfg.on_center_tap) {
                     s_cfg.on_center_tap(s_cfg.context);
                 }
                 break;
@@ -265,9 +305,11 @@ static void prv_touch_handler(const TouchEvent *event, void *context) {
                         "RotaryKit SWIPE %s (start=%d end=%d)",
                         dir_name[dir], (int)s_start_region, (int)end_region);
 
-                if (s_cfg.vibrate_on_swipe) vibes_short_pulse();
-                if (s_cfg.on_swipe) {
-                    s_cfg.on_swipe(dir, s_cfg.context);
+                if (s_window_has_config) {
+                    if (s_cfg.vibrate_on_swipe) vibes_short_pulse();
+                    if (s_cfg.on_swipe) {
+                        s_cfg.on_swipe(dir, s_cfg.context);
+                    }
                 }
             } else {
                 // Not a valid swipe — report as a normal rotation liftoff.
@@ -276,7 +318,7 @@ static void prv_touch_handler(const TouchEvent *event, void *context) {
                         s_click_count,
                         (int)s_total_hd / 2,
                         (int)s_accumulated_hd / 2);
-                if (s_cfg.on_liftoff) {
+                if (s_window_has_config && s_cfg.on_liftoff) {
                     s_cfg.on_liftoff(s_click_count,
                                      (int)s_total_hd / 2,
                                      s_cfg.context);
@@ -314,46 +356,55 @@ RotaryConfig rotary_kit_default_config(void) {
     return cfg;
 }
 
-bool rotary_kit_init(const RotaryConfig *config) {
-    if (s_active) {
-        APP_LOG(APP_LOG_LEVEL_WARNING,
-                "RotaryKit: rotary_kit_init called while already active");
-        return true;
+void rotary_kit_set_window_config(Window *window, const RotaryConfig *config) {
+    for (int i = 0; i < s_window_config_count; i++) {
+        if (s_window_configs[i].window == window) {
+            s_window_configs[i].config = *config;
+            return;
+        }
     }
-    if (!touch_service_is_enabled()) {
-        APP_LOG(APP_LOG_LEVEL_WARNING,
-                "RotaryKit: touch service not available on this hardware");
-        return false;
+    if (s_window_config_count < MAX_WINDOW_CONFIGS) {
+        s_window_configs[s_window_config_count].window = window;
+        s_window_configs[s_window_config_count].config = *config;
+        s_window_config_count++;
+    } else {
+        APP_LOG(APP_LOG_LEVEL_ERROR, "RotaryKit: max window configs reached!");
+        return;
     }
 
-    s_cfg            = *config;
-    s_is_rotating    = false;
-    s_accumulated_hd = 0;
-    s_total_hd       = 0;
-    s_click_count    = 0;
-    s_centre_crossed = false;
-    s_start_region   = REGION_NONE;
-    s_center_tap_pending = false;
+    if (!s_active && touch_service_is_enabled()) {
+        touch_service_subscribe(prv_touch_handler, NULL);
+        s_active = true;
 
-    touch_service_subscribe(prv_touch_handler, NULL);
-    s_active = true;
-
-    APP_LOG(APP_LOG_LEVEL_INFO,
+        APP_LOG(APP_LOG_LEVEL_INFO,
             "RotaryKit: active — centre=(%d,%d) deadzone=%dpx detent=%ddeg",
             (int)s_cfg.center_x, (int)s_cfg.center_y,
             (int)s_cfg.min_radius, (int)s_cfg.degrees_per_click);
-    return true;
+    } else {
+        APP_LOG(APP_LOG_LEVEL_ERROR,
+            "RotaryKit: touch service not available on this hardware");
+    }
 }
 
-void rotary_kit_deinit(void) {
-    if (!s_active) return;
-    touch_service_unsubscribe();
-    s_active             = false;
-    s_is_rotating        = false;
-    s_centre_crossed     = false;
-    s_center_tap_pending = false;
-    s_start_region       = REGION_NONE;
-    APP_LOG(APP_LOG_LEVEL_INFO, "RotaryKit: deactivated");
+void rotary_kit_clear_window_config(Window *window) {
+    for (int i = 0; i < s_window_config_count; i++) {
+        if (s_window_configs[i].window == window) {
+            for (int j = i; j < s_window_config_count - 1; j++) {
+                s_window_configs[j] = s_window_configs[j + 1];
+            }
+            s_window_config_count--;
+            break;
+        }
+    }
+    if (s_window_config_count == 0 && s_active) {
+        touch_service_unsubscribe();
+        s_active             = false;
+        s_is_rotating        = false;
+        s_centre_crossed     = false;
+        s_center_tap_pending = false;
+        s_start_region       = REGION_NONE;
+        APP_LOG(APP_LOG_LEVEL_INFO, "RotaryKit: deactivated");
+    }
 }
 
 bool rotary_kit_is_active(void) {
