@@ -176,30 +176,25 @@ static void window_load(Window *window) {
     apply_colors();   // set initial colours
  
     layer_add_child(root, menu_layer_get_layer(s_menu_layer));
+
+    // Build a config — start from defaults, override what you need.
+    RotaryConfig cfg      = rotary_kit_default_config();
+    cfg.on_click          = on_wheel_click;
+    cfg.on_liftoff        = on_wheel_liftoff;
+    cfg.on_swipe          = on_swipe;
+    cfg.on_center_tap     = on_center_tap;
+    cfg.degrees_per_click = 30;
+    // cfg.vibrate_on_click = false; // silence haptics if desired
+    rotary_kit_set_window_config(window, &cfg);
 }
 
 static void window_unload(Window *window) {
+    rotary_kit_clear_window_config(window);
     menu_layer_destroy(s_menu_layer);
 }
 
 static void window_appear(Window *window) {
-  
     menu_layer_set_click_config_onto_window(s_menu_layer, window);
-  
-    // Build a config — start from defaults, override what you need.
-    RotaryConfig cfg     = rotary_kit_default_config();
-    cfg.on_click         = on_wheel_click;
-    cfg.on_liftoff       = on_wheel_liftoff;
-    cfg.on_swipe         = on_swipe;
-    cfg.on_center_tap    = on_center_tap;   // your handler
-    cfg.degrees_per_click = 30;   // tighter detents (optional tweak)
-    // cfg.vibrate_on_click = false; // silence haptics if desired
- 
-    rotary_kit_init(&cfg);
-}
-
-static void window_disappear(Window *window) {
-  rotary_kit_deinit();
 }
 
 static void init(void) {
@@ -210,7 +205,6 @@ static void init(void) {
       .load      = window_load,
       .unload    = window_unload,
       .appear    = window_appear,
-      .disappear = window_disappear,
   });
   window_stack_push(s_window, true);
 }
