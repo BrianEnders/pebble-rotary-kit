@@ -24,6 +24,24 @@ typedef void (*RotaryClickCallback)(int direction, int click_num, void *context)
 //   total_degrees: total absolute rotation in degrees (always positive)
 typedef void (*RotaryLiftoffCallback)(int total_clicks, int total_degrees, void *context);
 
+// Fired when the user taps and releases inside the dead-zone centre without
+// drifting onto the wheel — equivalent to pressing the physical Select button.
+// (optional — pass NULL to skip)
+typedef void (*RotaryCenterTapCallback)(void *context);
+
+// Direction reported by on_swipe.
+typedef enum {
+    RotarySwipeDirection_Up    = 0,
+    RotarySwipeDirection_Down  = 1,
+    RotarySwipeDirection_Left  = 2,
+    RotarySwipeDirection_Right = 3,
+} RotarySwipeDirection;
+
+// Fired when a linear drag is recognised as a directional swipe (on liftoff).
+//   direction: one of the four RotarySwipeDirection values.
+// (optional — pass NULL to skip)
+typedef void (*RotarySwipeCallback)(RotarySwipeDirection direction, void *context);
+
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
@@ -36,15 +54,18 @@ typedef struct {
                                //   (default: 40)
 
     // --- Sensitivity ---
-    int16_t degrees_per_click; // Degrees of rotation per detent (default: 30)
-                               // Lower = more sensitive, higher = coarser
+    int16_t degrees_per_click;  // Degrees of rotation per detent (default: 30)
+                                // Lower = more sensitive, higher = coarser
 
     // --- Haptics ---
-    bool    vibrate_on_click;  // Pulse on every detent (default: true)
+    bool    vibrate_on_click;   // Pulse on every rotation detent (default: true)
+    bool    vibrate_on_swipe;   // Short pulse when a swipe fires (default: true)
 
     // --- Callbacks ---
-    RotaryClickCallback   on_click;    // Required
-    RotaryLiftoffCallback on_liftoff;  // Optional — pass NULL
+    RotaryClickCallback     on_click;       // Required
+    RotaryLiftoffCallback   on_liftoff;     // Optional — pass NULL
+    RotaryCenterTapCallback on_center_tap;  // Optional — pass NULL
+    RotarySwipeCallback     on_swipe;       // Optional — pass NULL
 
     // --- User data passed back to callbacks ---
     void *context;
