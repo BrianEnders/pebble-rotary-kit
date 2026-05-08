@@ -17,19 +17,62 @@ static const int8_t s_atan_table[46] = {
     83, 85, 86, 87, 89, 90
 };
 
-static RotaryConfig s_cfg;          // copy of active config
-static bool         s_active        = false;
-static bool         s_is_tracking   = false;
-static int16_t      s_last_angle_hd = 0;
-static int32_t      s_accumulated_hd = 0;
-static int32_t      s_total_hd       = 0;
-static int          s_click_count    = 0;
+static RotaryConfig s_cfg;
+static bool         s_active = false;
+
+// ---------------------------------------------------------------------------
+// Swipe region
+//
+// The screen is divided into four 90° wedges.  Angles are measured clockwise
+// from the top (12-o'clock = 0°), matching Pebble's DEG_TO_TRIGANGLE convention.
+//
+//   UP    region:  315° – 45°   (top)
+//   RIGHT region:   45° – 135°  (right)
+//   DOWN  region:  135° – 225°  (bottom)
+//   LEFT  region:  225° – 315°  (left)
+//
+// REGION_NONE means the touch is inside the dead zone (no region).
+// ---------------------------------------------------------------------------
+
+typedef enum {
+    REGION_NONE  = -1,
+    REGION_UP    =  0,   // maps 1:1 to RotarySwipeDirection_Up
+    REGION_DOWN  =  1,
+    REGION_LEFT  =  2,
+    REGION_RIGHT =  3,
+} TouchRegion;
+
+// Opposite region for each direction — used to validate a cross-screen swipe.
+static const TouchRegion OPPOSITE[4] = {
+    REGION_DOWN,   // opposite of UP
+    REGION_UP,     // opposite of DOWN
+    REGION_RIGHT,  // opposite of LEFT
+    REGION_LEFT,   // opposite of RIGHT
+};
+
+// ---------------------------------------------------------------------------
+// Rotation tracking
+// ---------------------------------------------------------------------------
+
+static int16_t s_last_angle_hd  = 0;
+static int32_t s_accumulated_hd = 0;
+static int32_t s_total_hd       = 0;
+static int     s_click_count    = 0;
+static bool    s_is_rotating    = false;   // true once finger is on the wheel
+
+// ---------------------------------------------------------------------------
+// Swipe tracking
+// ---------------------------------------------------------------------------
+
+static TouchRegion s_start_region   = REGION_NONE;
+static bool        s_centre_crossed = false;   // did path pass through dead zone?
+static bool        s_center_tap_pending = false;
 
 // ---------------------------------------------------------------------------
 // Geometry helpers
 // ---------------------------------------------------------------------------
 
-// Returns true if (x,y) is OUTSIDE the dead-zone circle (i.e. on the wheel).
+// Returns true if (x,y) is OUTSIDE the dead-zone (i.e. on the wheel ring).
 static bool prv_on_wheel(int16_t x, int16_t y) {
     int32_t dx = x - s_cfg.center_x;
     int32_t dy = y - s_cfg.center_y;
@@ -37,8 +80,8 @@ static bool prv_on_wheel(int16_t x, int16_t y) {
     return (dx * dx + dy * dy) >= r * r;
 }
 
-// Returns the touch angle in half-degrees [0..720).
-//   0   = right,  180 = down,  360 = left,  540 = up  (clockwise, screen coords)
+// Returns the touch angle in half-degrees [0..720), 0 = top, CW positive.
+// Screen coords: y increases downward, so "top" is negative dy.
 static int16_t prv_coords_to_angle_hd(int16_t x, int16_t y) {
     int16_t dx  = x - s_cfg.center_x;
     int16_t dy  = y - s_cfg.center_y;
@@ -64,15 +107,38 @@ static int16_t prv_coords_to_angle_hd(int16_t x, int16_t y) {
     }
 }
 
-// Shortest signed delta between two half-degree angles, clamped for noise.
-// Single-frame jumps > 30 degrees (= 60 hd) are treated as sensor noise.
+// Shortest signed delta between two half-degree angles, noise-clamped.
 static int16_t prv_angle_delta_hd(int16_t from, int16_t to) {
     int16_t delta = to - from;
     if (delta >  360) delta -= 720;
     if (delta < -360) delta += 720;
-    if (delta >   60) return 0;   // > 30 deg jump = noise, discard
+    if (delta >   60) return 0;
     if (delta <  -60) return 0;
     return delta;
+}
+
+// Returns which swipe region (x,y) falls in, or REGION_NONE if in dead zone.
+// Angles: 0° = right, 90° = down, 180° = left, 270° = up  (screen coords CW).
+// But our angle fn returns 0=right, so we map:
+//   RIGHT:  45– 135  half-degrees 90–270
+//   DOWN:  135– 225  half-degrees 270–450
+//   LEFT:  225– 315  half-degrees 450–630
+//   UP:    315– 45   half-degrees 630–720 + 0–90
+//
+// Simpler to work in whole degrees from the angle_hd / 2.
+static TouchRegion prv_region_at(int16_t x, int16_t y) {
+    if (!prv_on_wheel(x, y)) return REGION_NONE;
+
+    // angle_hd uses 0=right, CW.  Convert to 0=top, CW by adding 270° (= 540 hd).
+    int16_t raw_hd  = prv_coords_to_angle_hd(x, y);
+    int16_t top_hd  = (raw_hd + 540) % 720;  // 0=top, CW, half-degrees
+    int16_t deg     = top_hd / 2;             // 0–359, 0=top, CW
+
+    // Regions: UP 315–45, RIGHT 45–135, DOWN 135–225, LEFT 225–315
+    if (deg < 45 || deg >= 315) return REGION_UP;
+    if (deg < 135)              return REGION_RIGHT;
+    if (deg < 225)              return REGION_DOWN;
+    return REGION_LEFT;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,9 +147,7 @@ static int16_t prv_angle_delta_hd(int16_t from, int16_t to) {
 
 static void prv_fire_click(int direction) {
     s_click_count++;
-    if (s_cfg.vibrate_on_click) {
-        vibes_short_pulse();
-    }
+    if (s_cfg.vibrate_on_click) vibes_short_pulse();
     if (s_cfg.on_click) {
         s_cfg.on_click(direction, s_click_count, s_cfg.context);
     }
@@ -100,41 +164,66 @@ static void prv_fire_click(int direction) {
 // ---------------------------------------------------------------------------
 
 static void prv_touch_handler(const TouchEvent *event, void *context) {
-    int16_t threshold_hd = s_cfg.degrees_per_click * 2; // half-degrees
+    int16_t threshold_hd = s_cfg.degrees_per_click * 2;
 
     switch (event->type) {
 
         case TouchEvent_Touchdown:
-            // Reset per-gesture state
-            s_click_count     = 0;
-            s_total_hd        = 0;
-            s_accumulated_hd  = 0;
-            s_is_tracking     = false;
+            // Reset all per-gesture state
+            s_click_count        = 0;
+            s_accumulated_hd     = 0;
+            s_total_hd           = 0;
+            s_is_rotating        = false;
+            s_centre_crossed     = false;
+            s_center_tap_pending = false;
+            s_start_region       = prv_region_at(event->x, event->y);
 
-            if (prv_on_wheel(event->x, event->y)) {
+            if (s_start_region != REGION_NONE) {
+                // Started on the wheel — begin rotation tracking immediately.
+                s_is_rotating   = true;
                 s_last_angle_hd = prv_coords_to_angle_hd(event->x, event->y);
-                s_is_tracking   = true;
                 APP_LOG(APP_LOG_LEVEL_DEBUG,
-                        "RotaryKit TOUCHDOWN (%d,%d) angle=%dhd (%ddeg)",
+                        "RotaryKit TOUCHDOWN wheel (%d,%d) region=%d angle=%dhd",
                         (int)event->x, (int)event->y,
-                        (int)s_last_angle_hd, (int)s_last_angle_hd / 2);
+                        (int)s_start_region, (int)s_last_angle_hd);
             } else {
+                // Started in dead zone — centre tap candidate.
+                s_center_tap_pending = true;
                 APP_LOG(APP_LOG_LEVEL_DEBUG,
-                        "RotaryKit TOUCHDOWN (%d,%d) dead zone — ignoring",
+                        "RotaryKit TOUCHDOWN dead zone (%d,%d)",
                         (int)event->x, (int)event->y);
             }
             break;
 
         case TouchEvent_PositionUpdate:
-            if (s_is_tracking && prv_on_wheel(event->x, event->y)) {
+            // Track centre crossing regardless of where gesture started.
+            if (!s_centre_crossed && !prv_on_wheel(event->x, event->y)) {
+                s_centre_crossed = true;
+                APP_LOG(APP_LOG_LEVEL_DEBUG, "RotaryKit: centre crossed");
+            }
+
+            // Cancel centre tap if finger has moved meaningfully.
+            if (s_center_tap_pending && prv_on_wheel(event->x, event->y)) {
+                s_center_tap_pending = false;
+                // If the finger entered the wheel from the dead zone, start
+                // rotation tracking from here.
+                if (!s_is_rotating) {
+                    s_is_rotating   = true;
+                    s_start_region  = prv_region_at(event->x, event->y);
+                    s_last_angle_hd = prv_coords_to_angle_hd(event->x, event->y);
+                }
+                APP_LOG(APP_LOG_LEVEL_DEBUG,
+                        "RotaryKit: left dead zone — rotation tracking started");
+            }
+
+            // Rotation: accumulate angular delta while on the wheel.
+            if (s_is_rotating && prv_on_wheel(event->x, event->y)) {
                 int16_t cur_hd = prv_coords_to_angle_hd(event->x, event->y);
                 int16_t delta  = prv_angle_delta_hd(s_last_angle_hd, cur_hd);
-
                 s_accumulated_hd += delta;
                 s_total_hd       += delta < 0 ? -delta : delta;
                 s_last_angle_hd   = cur_hd;
 
-                // Drain accumulated rotation into discrete clicks
                 while (s_accumulated_hd >= threshold_hd) {
                     prv_fire_click(+1);
                     s_accumulated_hd -= threshold_hd;
@@ -146,22 +235,61 @@ static void prv_touch_handler(const TouchEvent *event, void *context) {
             }
             break;
 
-        case TouchEvent_Liftoff:
-            APP_LOG(APP_LOG_LEVEL_INFO,
-                    "RotaryKit LIFTOFF clicks=%d total=%ddeg leftover=%ddeg",
-                    s_click_count,
-                    (int)s_total_hd / 2,
-                    (int)s_accumulated_hd / 2);
-
-            if (s_cfg.on_liftoff) {
-                s_cfg.on_liftoff(s_click_count,
-                                 (int)s_total_hd / 2,
-                                 s_cfg.context);
+        case TouchEvent_Liftoff: {
+            // Centre tap — finger stayed in dead zone the whole gesture.
+            if (s_center_tap_pending) {
+                s_center_tap_pending = false;
+                APP_LOG(APP_LOG_LEVEL_INFO, "RotaryKit: centre tap");
+                if (s_cfg.on_center_tap) {
+                    s_cfg.on_center_tap(s_cfg.context);
+                }
+                break;
             }
 
-            s_is_tracking    = false;
+            // Swipe detection: start region + centre crossed + opposite end region.
+            TouchRegion end_region = prv_region_at(event->x, event->y);
+
+            if (s_centre_crossed &&
+                s_start_region != REGION_NONE &&
+                end_region     != REGION_NONE &&
+                end_region == OPPOSITE[s_start_region]) {
+
+                RotarySwipeDirection dir = (RotarySwipeDirection)s_start_region;
+                // start=LEFT fires RIGHT swipe, start=UP fires DOWN, etc.
+                // OPPOSITE maps start → end, and the swipe direction is
+                // "toward the end region", which equals OPPOSITE[start].
+                //dir = (RotarySwipeDirection)end_region;
+
+                const char *dir_name[] = { "UP", "DOWN", "LEFT", "RIGHT" };
+                APP_LOG(APP_LOG_LEVEL_INFO,
+                        "RotaryKit SWIPE %s (start=%d end=%d)",
+                        dir_name[dir], (int)s_start_region, (int)end_region);
+
+                if (s_cfg.vibrate_on_swipe) vibes_short_pulse();
+                if (s_cfg.on_swipe) {
+                    s_cfg.on_swipe(dir, s_cfg.context);
+                }
+            } else {
+                // Not a valid swipe — report as a normal rotation liftoff.
+                APP_LOG(APP_LOG_LEVEL_INFO,
+                        "RotaryKit LIFTOFF clicks=%d total=%ddeg leftover=%ddeg",
+                        s_click_count,
+                        (int)s_total_hd / 2,
+                        (int)s_accumulated_hd / 2);
+                if (s_cfg.on_liftoff) {
+                    s_cfg.on_liftoff(s_click_count,
+                                     (int)s_total_hd / 2,
+                                     s_cfg.context);
+                }
+            }
+
+            // Reset
+            s_is_rotating    = false;
             s_accumulated_hd = 0;
+            s_centre_crossed = false;
+            s_start_region   = REGION_NONE;
             break;
+        }
     }
 }
 
@@ -171,14 +299,17 @@ static void prv_touch_handler(const TouchEvent *event, void *context) {
 
 RotaryConfig rotary_kit_default_config(void) {
     RotaryConfig cfg = {
-        .center_x         = 130,
-        .center_y         = 130,
-        .min_radius       = 40,
+        .center_x          = 130,
+        .center_y          = 130,
+        .min_radius        = 40,
         .degrees_per_click = 30,
-        .vibrate_on_click = true,
-        .on_click         = NULL,
-        .on_liftoff       = NULL,
-        .context          = NULL,
+        .vibrate_on_click  = true,
+        .vibrate_on_swipe  = true,
+        .on_click          = NULL,
+        .on_liftoff        = NULL,
+        .on_center_tap     = NULL,
+        .on_swipe          = NULL,
+        .context           = NULL,
     };
     return cfg;
 }
@@ -195,11 +326,14 @@ bool rotary_kit_init(const RotaryConfig *config) {
         return false;
     }
 
-    s_cfg           = *config;   // take a local copy
-    s_is_tracking   = false;
+    s_cfg            = *config;
+    s_is_rotating    = false;
     s_accumulated_hd = 0;
     s_total_hd       = 0;
     s_click_count    = 0;
+    s_centre_crossed = false;
+    s_start_region   = REGION_NONE;
+    s_center_tap_pending = false;
 
     touch_service_subscribe(prv_touch_handler, NULL);
     s_active = true;
@@ -214,8 +348,11 @@ bool rotary_kit_init(const RotaryConfig *config) {
 void rotary_kit_deinit(void) {
     if (!s_active) return;
     touch_service_unsubscribe();
-    s_active      = false;
-    s_is_tracking = false;
+    s_active             = false;
+    s_is_rotating        = false;
+    s_centre_crossed     = false;
+    s_center_tap_pending = false;
+    s_start_region       = REGION_NONE;
     APP_LOG(APP_LOG_LEVEL_INFO, "RotaryKit: deactivated");
 }
 
