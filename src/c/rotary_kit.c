@@ -179,12 +179,12 @@ static void prv_fire_click(int direction) {
     if (s_cfg.on_click) {
         s_cfg.on_click(direction, s_click_count, s_cfg.context);
     }
-    APP_LOG(APP_LOG_LEVEL_DEBUG,
-            "RotaryKit CLICK #%d: %s  accum=%dhd  total=%dhd",
-            s_click_count,
-            direction > 0 ? "CW" : "CCW",
-            (int)s_accumulated_hd,
-            (int)s_total_hd);
+    // APP_LOG(APP_LOG_LEVEL_DEBUG,
+    //         "RotaryKit CLICK #%d: %s  accum=%dhd  total=%dhd",
+    //         s_click_count,
+    //         direction > 0 ? "CW" : "CCW",
+    //         (int)s_accumulated_hd,
+    //         (int)s_total_hd);
 }
 
 // ---------------------------------------------------------------------------
@@ -222,16 +222,16 @@ static void prv_touch_handler(const TouchEvent *event, void *context) {
                 // Started on the wheel — begin rotation tracking immediately.
                 s_is_rotating   = true;
                 s_last_angle_hd = prv_coords_to_angle_hd(event->x, event->y);
-                APP_LOG(APP_LOG_LEVEL_DEBUG,
-                        "RotaryKit TOUCHDOWN wheel (%d,%d) region=%d angle=%dhd",
-                        (int)event->x, (int)event->y,
-                        (int)s_start_region, (int)s_last_angle_hd);
+                // APP_LOG(APP_LOG_LEVEL_DEBUG,
+                //         "RotaryKit TOUCHDOWN wheel (%d,%d) region=%d angle=%dhd",
+                //         (int)event->x, (int)event->y,
+                //         (int)s_start_region, (int)s_last_angle_hd);
             } else {
                 // Started in dead zone — centre tap candidate.
                 s_center_tap_pending = true;
-                APP_LOG(APP_LOG_LEVEL_DEBUG,
-                        "RotaryKit TOUCHDOWN dead zone (%d,%d)",
-                        (int)event->x, (int)event->y);
+                // APP_LOG(APP_LOG_LEVEL_DEBUG,
+                //         "RotaryKit TOUCHDOWN dead zone (%d,%d)",
+                //         (int)event->x, (int)event->y);
             }
             break;
 
@@ -239,7 +239,7 @@ static void prv_touch_handler(const TouchEvent *event, void *context) {
             // Track centre crossing regardless of where gesture started.
             if (!s_centre_crossed && !prv_on_wheel(event->x, event->y)) {
                 s_centre_crossed = true;
-                APP_LOG(APP_LOG_LEVEL_DEBUG, "RotaryKit: centre crossed");
+                // APP_LOG(APP_LOG_LEVEL_DEBUG, "RotaryKit: centre crossed");
             }
 
             // Cancel centre tap if finger has moved meaningfully.
@@ -252,8 +252,8 @@ static void prv_touch_handler(const TouchEvent *event, void *context) {
                     s_start_region  = prv_region_at(event->x, event->y);
                     s_last_angle_hd = prv_coords_to_angle_hd(event->x, event->y);
                 }
-                APP_LOG(APP_LOG_LEVEL_DEBUG,
-                        "RotaryKit: left dead zone — rotation tracking started");
+                // APP_LOG(APP_LOG_LEVEL_DEBUG,
+                //         "RotaryKit: left dead zone — rotation tracking started");
             }
 
             // Rotation: accumulate angular delta while on the wheel.
@@ -279,7 +279,7 @@ static void prv_touch_handler(const TouchEvent *event, void *context) {
             // Centre tap — finger stayed in dead zone the whole gesture.
             if (s_center_tap_pending) {
                 s_center_tap_pending = false;
-                APP_LOG(APP_LOG_LEVEL_INFO, "RotaryKit: centre tap");
+                // APP_LOG(APP_LOG_LEVEL_INFO, "RotaryKit: centre tap");
                 if (s_window_has_config && s_cfg.on_center_tap) {
                     s_cfg.on_center_tap(s_cfg.context);
                 }
@@ -301,9 +301,9 @@ static void prv_touch_handler(const TouchEvent *event, void *context) {
                 //dir = (RotarySwipeDirection)end_region;
 
                 const char *dir_name[] = { "UP", "DOWN", "LEFT", "RIGHT" };
-                APP_LOG(APP_LOG_LEVEL_INFO,
-                        "RotaryKit SWIPE %s (start=%d end=%d)",
-                        dir_name[dir], (int)s_start_region, (int)end_region);
+                // APP_LOG(APP_LOG_LEVEL_INFO,
+                //         "RotaryKit SWIPE %s (start=%d end=%d)",
+                //         dir_name[dir], (int)s_start_region, (int)end_region);
 
                 if (s_window_has_config) {
                     if (s_cfg.vibrate_on_swipe) vibes_short_pulse();
@@ -313,11 +313,11 @@ static void prv_touch_handler(const TouchEvent *event, void *context) {
                 }
             } else {
                 // Not a valid swipe — report as a normal rotation liftoff.
-                APP_LOG(APP_LOG_LEVEL_INFO,
-                        "RotaryKit LIFTOFF clicks=%d total=%ddeg leftover=%ddeg",
-                        s_click_count,
-                        (int)s_total_hd / 2,
-                        (int)s_accumulated_hd / 2);
+                // APP_LOG(APP_LOG_LEVEL_INFO,
+                //         "RotaryKit LIFTOFF clicks=%d total=%ddeg leftover=%ddeg",
+                //         s_click_count,
+                //         (int)s_total_hd / 2,
+                //         (int)s_accumulated_hd / 2);
                 if (s_window_has_config && s_cfg.on_liftoff) {
                     s_cfg.on_liftoff(s_click_count,
                                      (int)s_total_hd / 2,
@@ -368,7 +368,7 @@ void rotary_kit_set_window_config(Window *window, const RotaryConfig *config) {
         s_window_configs[s_window_config_count].config = *config;
         s_window_config_count++;
     } else {
-        APP_LOG(APP_LOG_LEVEL_ERROR, "RotaryKit: max window configs reached!");
+        // APP_LOG(APP_LOG_LEVEL_ERROR, "RotaryKit: max window configs reached!");
         return;
     }
 
@@ -376,13 +376,13 @@ void rotary_kit_set_window_config(Window *window, const RotaryConfig *config) {
         touch_service_subscribe(prv_touch_handler, NULL);
         s_active = true;
 
-        APP_LOG(APP_LOG_LEVEL_INFO,
-            "RotaryKit: active — centre=(%d,%d) deadzone=%dpx detent=%ddeg",
-            (int)s_cfg.center_x, (int)s_cfg.center_y,
-            (int)s_cfg.min_radius, (int)s_cfg.degrees_per_click);
+        // APP_LOG(APP_LOG_LEVEL_INFO,
+        //     "RotaryKit: active — centre=(%d,%d) deadzone=%dpx detent=%ddeg",
+        //     (int)s_cfg.center_x, (int)s_cfg.center_y,
+        //     (int)s_cfg.min_radius, (int)s_cfg.degrees_per_click);
     } else {
-        APP_LOG(APP_LOG_LEVEL_ERROR,
-            "RotaryKit: touch service not available on this hardware");
+        // APP_LOG(APP_LOG_LEVEL_ERROR,
+        //     "RotaryKit: touch service not available on this hardware");
     }
 }
 
@@ -403,7 +403,7 @@ void rotary_kit_clear_window_config(Window *window) {
         s_centre_crossed     = false;
         s_center_tap_pending = false;
         s_start_region       = REGION_NONE;
-        APP_LOG(APP_LOG_LEVEL_INFO, "RotaryKit: deactivated");
+        // APP_LOG(APP_LOG_LEVEL_INFO, "RotaryKit: deactivated");
     }
 }
 
