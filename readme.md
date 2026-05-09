@@ -249,7 +249,7 @@ further access to its layers or state will crash. If this is the root window,
 
 | Folder | Description |
 |---|---|
-| `examples/menu_demo/` | MenuLayer scrolled by the wheel; centre tap toggles highlight colour; swipes logged |
+| `main.c` | MenuLayer example scrolled by the wheel; centre tap toggles highlight colour; swipes logged |
 
 
 ---
