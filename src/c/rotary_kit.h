@@ -2,10 +2,10 @@
 // Drop rotary_kit.h + rotary_kit.c into your project and include this header.
 //
 // Usage:
-//   1. Create a RotaryConfig and fill in your callbacks + tuning values.
-//   2. Call rotary_kit_init() in your window's .appear handler.
-//   3. Call rotary_kit_deinit() in your window's .disappear handler.
-//   That's it — RotaryKit owns the touch subscription.
+//   1. Call rotary_kit_set_window_config() when creating each window.
+//   2. Call rotary_kit_clear_window_config() when destroying it.
+//   That's it — RotaryKit owns the touch subscription and automatically routes
+//   events to whichever window is on top of the stack.
 
 #pragma once
 #include <pebble.h>
@@ -19,7 +19,7 @@
 //   click_num: 1-based count of clicks fired in the current drag gesture
 typedef void (*RotaryClickCallback)(int direction, int click_num, void *context);
 
-// Fired when the user lifts their finger (optional — pass NULL to skip).
+// Fired when the user lifts their finger after a rotation (optional).
 //   total_clicks : total click-events fired during this gesture
 //   total_degrees: total absolute rotation in degrees (always positive)
 typedef void (*RotaryLiftoffCallback)(int total_clicks, int total_degrees, void *context);
@@ -37,7 +37,7 @@ typedef enum {
     RotarySwipeDirection_Right = 3,
 } RotarySwipeDirection;
 
-// Fired when a linear drag is recognised as a directional swipe (on liftoff).
+// Fired when a cross-screen swipe is recognised (on liftoff).
 //   direction: one of the four RotarySwipeDirection values.
 // (optional — pass NULL to skip)
 typedef void (*RotarySwipeCallback)(RotarySwipeDirection direction, void *context);
@@ -48,17 +48,17 @@ typedef void (*RotarySwipeCallback)(RotarySwipeDirection direction, void *contex
 
 typedef struct {
     // --- Geometry ---
-    int16_t center_x;          // X pixel of wheel centre (default: 130)
-    int16_t center_y;          // Y pixel of wheel centre (default: 130)
-    int16_t min_radius;        // Dead zone radius — touches inside are ignored
-                               //   (default: 40)
+    int16_t center_x;           // X pixel of wheel centre (default: 130)
+    int16_t center_y;           // Y pixel of wheel centre (default: 130)
+    int16_t min_radius;         // Dead zone radius in px — touches inside are
+                                //   treated as centre taps (default: 40)
 
     // --- Sensitivity ---
-    int16_t degrees_per_click;  // Degrees of rotation per detent (default: 30)
-                                // Lower = more sensitive, higher = coarser
+    int16_t degrees_per_click;  // Degrees of arc per rotation detent (default: 30)
+                                //   Lower = more sensitive, higher = coarser
 
     // --- Haptics ---
-    bool    vibrate_on_click;   // Pulse on every rotation detent (default: true)
+    bool    vibrate_on_click;   // Short pulse on every rotation detent (default: true)
     bool    vibrate_on_swipe;   // Short pulse when a swipe fires (default: true)
 
     // --- Callbacks ---
@@ -67,7 +67,7 @@ typedef struct {
     RotaryCenterTapCallback on_center_tap;  // Optional — pass NULL
     RotarySwipeCallback     on_swipe;       // Optional — pass NULL
 
-    // --- User data passed back to callbacks ---
+    // --- User data passed back to all callbacks ---
     void *context;
 } RotaryConfig;
 
@@ -79,13 +79,17 @@ typedef struct {
 // Override only the fields you care about before passing to rotary_kit_set_window_config().
 RotaryConfig rotary_kit_default_config(void);
 
-// Register a rotary config for a specific window
-// Call when creating a window
+// Register a gesture config for a specific window.
+// Call from your window's .load handler (or before pushing it onto the stack).
+// RotaryKit subscribes to the touch service automatically on the first registration.
+// Up to MAX_WINDOW_CONFIGS (8) windows may be registered simultaneously.
 void rotary_kit_set_window_config(Window *window, const RotaryConfig *config);
 
-// Remove the rotary config for a window. 
-// Call when destroying the window.
+// Remove the gesture config for a window.
+// Call from your window's .unload handler.
+// RotaryKit unsubscribes from the touch service automatically when the last
+// window is removed.
 void rotary_kit_clear_window_config(Window *window);
 
-// Returns true if RotaryKit is currently subscribed and tracking.
+// Returns true if RotaryKit is currently subscribed to the touch service.
 bool rotary_kit_is_active(void);
