@@ -1,6 +1,6 @@
 # RotaryKit
 
-An click wheel style gesture library for [Pebble Time/Round 2](https://www.pebble.com).
+An click wheel style gesture library for [Pebble Time/Round 2](https://www.repebble.com).
 Drop two files into your project and get rotation clicks, directional swipes, and centre
 taps — all from the touch display — with no boilerplate.
 
