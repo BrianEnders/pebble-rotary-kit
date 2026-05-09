@@ -1,46 +1,56 @@
+#
+# This file is the default set of rules to compile a Pebble application.
+#
+# Feel free to customize this to your needs.
+#
+import os.path
 
-/*
- * Example jshint configuration file for Pebble development.
- *
- * Check out the full documentation at http://www.jshint.com/docs/options/
- */
-{
-  // Declares the existence of the globals available in PebbleKit JS.
-  "globals": {"console": true, "setTimeout": true, "setInterval": true, "Int8Array": true, "Uint8Array": true, "Uint8ClampedArray": true, "Int16Array": true, "Uint16Array": true, "Int32Array": true, "Uint32Array": true, "Float32Array": true, "Float64Array": true, "Pebble": true, "WebSocket": true, "XMLHttpRequest": true, "navigator": true, "localStorage": true, "require": true, "exports": true, "module": true},
+top = '.'
+out = 'build'
 
-  // Do not mess with standard JavaScript objects (Array, Date, etc)
-  "freeze": true,
 
-  // Do not use eval! Keep this warning turned on (ie: false)
-  "evil": false,
+def options(ctx):
+    ctx.load('pebble_sdk')
 
-  /*
-   * The options below are more style/developer dependent.
-   * Customize to your liking.
-   */
 
-  // All variables should be in camelcase - too specific for CloudPebble builds to fail
-  // "camelcase": true,
+def configure(ctx):
+    """
+    This method is used to configure your build. ctx.load(`pebble_sdk`) automatically configures
+    a build for each valid platform in `targetPlatforms`. Platform-specific configuration: add your
+    change after calling ctx.load('pebble_sdk') and make sure to set the correct environment first.
+    Universal configuration: add your change prior to calling ctx.load('pebble_sdk').
+    """
+    ctx.load('pebble_sdk')
 
-  // Do not allow blocks without { } - too specific for CloudPebble builds to fail.
-  // "curly": true,
 
-  // Prohibits the use of immediate function invocations without wrapping them in parentheses
-  "immed": true,
+def build(ctx):
+    ctx.exec_command('npm run build')
 
-  // Don't enforce indentation, because it's not worth failing builds over
-  // (especially given our somewhat lacklustre support for it)
-  "indent": false,
+    ctx.load('pebble_sdk')
 
-  // Do not use a variable before it's defined
-  "latedef": "nofunc",
+    build_worker = os.path.exists('worker_src')
+    binaries = []
 
-  // Spot undefined variables
-  "undef": "true",
+    cached_env = ctx.env
+    for platform in ctx.env.TARGET_PLATFORMS:
+        ctx.env = ctx.all_envs[platform]
+        ctx.set_group(ctx.env.PLATFORM_NAME)
+        app_elf = '{}/pebble-app.elf'.format(ctx.env.BUILD_DIR)
+        ctx.pbl_build(source=ctx.path.ant_glob('src/c/**/*.c'), target=app_elf, bin_type='app')
 
-  // Spot unused variables
-  "unused": "true",
+        if build_worker:
+            worker_elf = '{}/pebble-worker.elf'.format(ctx.env.BUILD_DIR)
+            binaries.append({'platform': platform, 'app_elf': app_elf, 'worker_elf': worker_elf})
+            ctx.pbl_build(source=ctx.path.ant_glob('worker_src/c/**/*.c'),
+                          target=worker_elf,
+                          bin_type='worker')
+        else:
+            binaries.append({'platform': platform, 'app_elf': app_elf})
+    ctx.env = cached_env
 
-  // Enable ES6 syntax (const, let, arrow functions, etc)
-  "esversion": 6
-}
+    ctx.set_group('bundle')
+    ctx.pbl_bundle(binaries=binaries,
+                   js=ctx.path.ant_glob(['src/ts-build/**/*.js',
+                                         'src/pkjs/**/*.json',
+                                         'src/common/**/*.js']),
+                   js_entry_file='src/ts-build/index.js')

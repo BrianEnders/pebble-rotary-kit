@@ -76,17 +76,16 @@ typedef struct {
 // ---------------------------------------------------------------------------
 
 // Returns a RotaryConfig pre-filled with sensible defaults.
-// Override only the fields you care about before passing to rotary_kit_init().
+// Override only the fields you care about before passing to rotary_kit_set_window_config().
 RotaryConfig rotary_kit_default_config(void);
 
-// Subscribe to the touch service and begin gesture tracking.
-// Call from your window's .appear handler (or anywhere after the window loads).
-// Returns false if touch is unavailable on this hardware.
-bool rotary_kit_init(const RotaryConfig *config);
+// Register a rotary config for a specific window
+// Call when creating a window
+void rotary_kit_set_window_config(Window *window, const RotaryConfig *config);
 
-// Unsubscribe from the touch service and reset state.
-// Call from your window's .disappear handler.
-void rotary_kit_deinit(void);
+// Remove the rotary config for a window. 
+// Call when destroying the window.
+void rotary_kit_clear_window_config(Window *window);
 
 // Returns true if RotaryKit is currently subscribed and tracking.
 bool rotary_kit_is_active(void);
