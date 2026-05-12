@@ -89,19 +89,19 @@ static void window_unload(Window *window) {
 ---
 
 ## API reference
-
+ 
 ### `RotaryConfig rotary_kit_default_config(void)`
-
+ 
 Returns a config struct pre-filled with sensible defaults. Override only what you need.
-
+ 
 | Field | Default | Description |
 |---|---|---|
 | `center_x` | 130 | X pixel of screen centre |
 | `center_y` | 130 | Y pixel of screen centre |
 | `min_radius` | 40 | Dead zone radius in pixels. Touches inside = centre tap zone. |
 | `degrees_per_click` | 30 | Degrees of arc per rotation detent. Lower = more sensitive. |
-| `vibrate_on_click` | `true` | Short haptic pulse on each rotation detent. |
-| `vibrate_on_swipe` | `true` | Short haptic pulse when a swipe fires. |
+| `click_vibe_ms` | `20` | Rotation detent pulse duration in ms. Set to `0` to disable. |
+| `swipe_vibe_ms` | `40` | Swipe fire pulse duration in ms. Set to `0` to disable. |
 | `on_click` | `NULL` | **Required.** Rotation callback. |
 | `on_liftoff` | `NULL` | Optional. Fires on finger lift after a rotation. |
 | `on_center_tap` | `NULL` | Optional. Fires on a tap inside the dead zone. |
@@ -225,6 +225,20 @@ swipe fires, or set `on_click = NULL` for windows where you only want swipes.
 
 **Tune `degrees_per_click` for your use case.** 30° works well for menu navigation.
 For fine value adjustment try 10°–15°. For coarse jumps try 45°.
+
+**Tune haptic intensity with `click_vibe_ms` and `swipe_vibe_ms`.** The defaults (20ms
+click, 40ms swipe) are gentler than `vibes_short_pulse()`. Raise them if users need
+stronger feedback, or set to `0` to silence entirely:
+ 
+```c
+cfg.click_vibe_ms = 0;   // no haptics on rotation
+cfg.swipe_vibe_ms = 60;  // stronger confirmation on swipe
+```
+ 
+For a two-pulse swipe confirmation, wire `on_swipe` to call
+`vibes_enqueue_custom_pattern()` directly with a custom pattern instead of relying
+on `swipe_vibe_ms`.
+
 
 **Swipe left makes a natural back button.** `RotarySwipeDirection_Left` mirrors the
 physical back button gesture and can be wired directly to `window_stack_pop()`:
