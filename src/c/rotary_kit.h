@@ -58,8 +58,12 @@ typedef struct {
                                 //   Lower = more sensitive, higher = coarser
 
     // --- Haptics ---
-    bool    vibrate_on_click;   // Short pulse on every rotation detent (default: true)
-    bool    vibrate_on_swipe;   // Short pulse when a swipe fires (default: true)
+    // Duration in milliseconds for the vibration pulse on each event.
+    // Set to 0 to disable vibration entirely for that event.
+    // Default: 20ms for clicks (subtle), 40ms for swipes (slightly more distinct).
+    // Maximum: 10000ms (Pebble VibePattern limit).
+    uint32_t click_vibe_ms;   // pulse duration per rotation detent  (default: 20)
+    uint32_t swipe_vibe_ms;   // pulse duration on swipe fire        (default: 40)
 
     // --- Callbacks ---
     RotaryClickCallback     on_click;       // Required
