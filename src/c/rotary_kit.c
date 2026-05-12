@@ -165,12 +165,24 @@ static TouchRegion prv_region_at(int16_t x, int16_t y) {
 }
 
 // ---------------------------------------------------------------------------
-// Internal click dispatch
+// Internal helpers
 // ---------------------------------------------------------------------------
+
+// Fires a single-segment custom vibe pattern of `ms` milliseconds.
+// Does nothing if ms == 0. Using vibes_enqueue_custom_pattern instead of
+// vibes_short_pulse gives precise control over intensity/duration.
+static void prv_vibe(uint32_t ms) {
+    if (ms == 0) return;
+    VibePattern pat = {
+        .durations    = &ms,
+        .num_segments = 1,
+    };
+    vibes_enqueue_custom_pattern(pat);
+}
 
 static void prv_fire_click(int direction) {
     s_click_count++;
-    if (s_cfg.vibrate_on_click) vibes_short_pulse();
+    prv_vibe(s_cfg.click_vibe_ms);
     if (s_cfg.on_click) {
         s_cfg.on_click(direction, s_click_count, s_cfg.context);
     }
@@ -283,7 +295,7 @@ static void prv_touch_handler(const TouchEvent *event, void *context) {
                 // Direction = the side the finger moved toward.
                 RotarySwipeDirection dir = (RotarySwipeDirection)s_last_region;
 
-                if (s_cfg.vibrate_on_swipe) vibes_short_pulse();
+                prv_vibe(s_cfg.swipe_vibe_ms);
                 if (s_cfg.on_swipe) {
                     s_cfg.on_swipe(dir, s_cfg.context);
                 }
@@ -317,8 +329,8 @@ RotaryConfig rotary_kit_default_config(void) {
         .center_y          = 130,
         .min_radius        = 40,
         .degrees_per_click = 30,
-        .vibrate_on_click  = true,
-        .vibrate_on_swipe  = true,
+        .click_vibe_ms     = 20,   // subtle — won't fatigue during fast scrolling
+        .swipe_vibe_ms     = 40,   // slightly longer — marks a committed gesture
         .on_click          = NULL,
         .on_liftoff        = NULL,
         .on_center_tap     = NULL,
