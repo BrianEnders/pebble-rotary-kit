@@ -57,6 +57,15 @@ typedef struct {
     int16_t degrees_per_click;  // Degrees of arc per rotation detent (default: 30)
                                 //   Lower = more sensitive, higher = coarser
 
+    // --- Acceleration ---
+    // After each accel_degrees_per_level of cumulative rotation the effective
+    // click rate doubles (threshold halved), up to 2^accel_max_level times.
+    // The multiplier resets to 1× after accel_reset_ms of inactivity.
+    // Set accel_degrees_per_level to 0 to disable acceleration entirely.
+    int16_t  accel_degrees_per_level;  // arc per doubling in degrees (default: 180)
+    int8_t   accel_max_level;          // doubling cap — multiplier ≤ 2^n (default: 3 = 8×)
+    uint32_t accel_reset_ms;           // inactivity timeout before reset (default: 3000)
+
     // --- Haptics ---
     // Duration in milliseconds for the vibration pulse on each event.
     // Set to 0 to disable vibration entirely for that event.
