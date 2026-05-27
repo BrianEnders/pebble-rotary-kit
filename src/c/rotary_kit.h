@@ -64,7 +64,7 @@ typedef struct {
     // Set accel_degrees_per_level to 0 to disable acceleration entirely.
     int16_t  accel_degrees_per_level;  // arc per doubling in degrees (default: 180)
     int8_t   accel_max_level;          // doubling cap — multiplier ≤ 2^n (default: 3 = 8×)
-    uint32_t accel_reset_ms;           // inactivity timeout before reset (default: 3000)
+    uint32_t accel_reset_ms;           // inactivity timeout before reset (default: 500)
 
     // --- Haptics ---
     // Duration in milliseconds for the vibration pulse on each event.
