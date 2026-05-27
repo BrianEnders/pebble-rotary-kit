@@ -107,7 +107,7 @@ Returns a config struct pre-filled with sensible defaults. Override only what yo
 | `on_center_tap` | `NULL` | Optional. Fires on a tap inside the dead zone. |
 | `on_swipe` | `NULL` | Optional. Fires on a valid cross-screen swipe. |
 | `accel_degrees_per_level` | `180` | Optional. Arc per doubling in degrees. Set to 0 to disable. |
-| `accel_max_level` | `8` | Optional. Doubling cap - multiplier ≤ 2^n. |
+| `accel_max_level` | `3` | Optional. Doubling cap - multiplier ≤ 2^n. |
 | `accel_reset_ms` | `500` | Optional. Inactivity ms timeout before reset. |
 | `context` | `NULL` | Passed back to all callbacks as the `context` argument. |
 
